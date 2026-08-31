@@ -1,0 +1,59 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: habit_coach
+      POSTGRES_USER: habit
+      POSTGRES_PASSWORD: habit
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U habit -d habit_coach"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+asyncpg://habit:habit@db:5432/habit_coach
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-local-docker-secret-change-me}
+      CORS_ORIGINS: http://localhost:8081,http://localhost:19006
+      OLLAMA_ENABLED: ${OLLAMA_ENABLED:-true}
+      OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:0.6b}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  bot:
+    build: .
+    command: python -m bot.main
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      API_BASE_URL: http://backend:8000/api/v1
+      BOT_USER_EMAIL: ${BOT_USER_EMAIL:-}
+      BOT_USER_PASSWORD: ${BOT_USER_PASSWORD:-}
+    depends_on:
+      - backend
+    profiles: ["bot"]
+
+volumes:
+  postgres_data:
+  redis_data:
